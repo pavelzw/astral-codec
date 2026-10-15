@@ -478,3 +478,23 @@ async fn policy_errors_fuse_member_iteration() -> TestResult {
     assert!(members.next().await?.is_none());
     Ok(())
 }
+
+/// The inherent decode methods yield `Send` futures for borrowing `Send`
+/// readers, so callers can drive them on multi-threaded executors. (Driving the
+/// lending `members()` cursor instead currently fails to compile here.)
+#[allow(dead_code)]
+fn inherent_decode_futures_are_send(reader: &mut (dyn tokio::io::AsyncRead + Send + Unpin)) {
+    fn assert_send<T: Send>(_: &T) {}
+
+    let future = async move {
+        let mut archive = TarArchive::new(reader);
+        while let Some(member) = archive.next_member().await? {
+            if let Member::File { mut payload, .. } = member {
+                let mut buffer = Vec::new();
+                while payload.next_chunk(&mut buffer, 1024).await? {}
+            }
+        }
+        Ok::<_, tar_codec::DecodeError>(())
+    };
+    assert_send(&future);
+}

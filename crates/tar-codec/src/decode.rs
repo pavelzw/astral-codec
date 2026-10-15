@@ -526,6 +526,29 @@ pub struct TarMemberPayload<'a, R> {
     payload: FramingMemberPayload<'a, R>,
 }
 
+impl<R: AsyncRead + Unpin> TarMemberPayload<'_, R> {
+    /// Reads the next validated, logical payload chunk into a reusable buffer.
+    ///
+    /// This is the inherent form of [`MemberPayloadTrait::next_chunk`].
+    pub async fn next_chunk(
+        &mut self,
+        buffer: &mut Vec<u8>,
+        target_len: usize,
+    ) -> Result<bool, DecodeError> {
+        self.payload
+            .next_chunk(buffer, target_len)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Discards and validates all remaining payload bytes.
+    ///
+    /// This is the inherent form of [`MemberPayloadTrait::skip`].
+    pub async fn skip(self) -> Result<(), DecodeError> {
+        self.payload.skip().await.map_err(Into::into)
+    }
+}
+
 impl<R: AsyncRead + Unpin> MemberPayloadTrait for TarMemberPayload<'_, R> {
     type Error = DecodeError;
 
@@ -534,27 +557,28 @@ impl<R: AsyncRead + Unpin> MemberPayloadTrait for TarMemberPayload<'_, R> {
         buffer: &mut Vec<u8>,
         target_len: usize,
     ) -> Result<bool, Self::Error> {
-        self.payload
-            .next_chunk(buffer, target_len)
-            .await
-            .map_err(Into::into)
+        TarMemberPayload::next_chunk(self, buffer, target_len).await
     }
 
     async fn skip(self) -> Result<(), Self::Error> {
-        self.payload.skip().await.map_err(Into::into)
+        TarMemberPayload::skip(self).await
     }
 }
 
-impl<R: AsyncRead + Unpin> ArchiveTrait for TarArchive<R> {
-    type Error = DecodeError;
-    type Payload<'a>
-        = TarMemberPayload<'a, R>
-    where
-        Self: 'a;
-
-    async fn next_member<'a>(
-        &'a mut self,
-    ) -> Result<Option<Member<Self::Payload<'a>>>, Self::Error> {
+impl<R: AsyncRead + Unpin> TarArchive<R> {
+    /// Reads the next member.
+    ///
+    /// This is the inherent form of [`ArchiveTrait::next_member`]. The payload
+    /// borrows this archive, so the archive cannot advance until the member is
+    /// dropped or consumed.
+    ///
+    /// Prefer this over [`ArchiveTrait::members`] when the decoding future must
+    /// be `Send`: rustc currently fails to prove that futures driving the
+    /// lending [`archive_trait::Members`] cursor are `Send` when `R` contains
+    /// borrowed lifetimes.
+    pub async fn next_member(
+        &mut self,
+    ) -> Result<Option<Member<TarMemberPayload<'_, R>>>, DecodeError> {
         if self.fused {
             return Ok(None);
         }
@@ -583,6 +607,20 @@ impl<R: AsyncRead + Unpin> ArchiveTrait for TarArchive<R> {
                 Err(error)
             }
         }
+    }
+}
+
+impl<R: AsyncRead + Unpin> ArchiveTrait for TarArchive<R> {
+    type Error = DecodeError;
+    type Payload<'a>
+        = TarMemberPayload<'a, R>
+    where
+        Self: 'a;
+
+    async fn next_member<'a>(
+        &'a mut self,
+    ) -> Result<Option<Member<Self::Payload<'a>>>, Self::Error> {
+        TarArchive::next_member(self).await
     }
 }
 
