@@ -18,12 +18,13 @@
 pub mod decode;
 pub mod encode;
 
+pub use archive_trait::builder;
 pub use archive_trait::{
-    Archive, ArchiveBuilder, BuildError, Builder, EntryMetadata, ExtractError,
-    ExtractPolicyViolation, FilePayload, LentPayload, Member, MemberMetadata, MemberPayload,
-    Members, NameValidator, SpecialKind, TraversalError, default_name_validator,
+    Archive, ArchiveBuilder, BuildError, Builder, EntryMetadata, FilePayload, LentPayload, Member,
+    MemberMetadata, MemberPayload, Members, NameValidator, SpecialKind, default_name_validator,
 };
-pub use archive_trait::{builder, extract};
+#[cfg(feature = "fs")]
+pub use archive_trait::{ExtractError, ExtractPolicyViolation, TraversalError, extract};
 pub use decode::{
     DecodeError, DecodePolicy, DecodePolicyViolation, PaxDecodePolicy, PaxVendorAllowlist,
     PaxVendorExtensionPolicy, TarArchive, TarMemberPayload,
